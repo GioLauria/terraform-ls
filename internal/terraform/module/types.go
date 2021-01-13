@@ -42,8 +42,6 @@ type ModuleManager interface {
 
 	InitAndUpdateModule(ctx context.Context, dir string) (Module, error)
 	AddAndStartLoadingModule(ctx context.Context, dir string) (Module, error)
-	WorkerPoolSize() int
-	WorkerQueueSize() int
 	ListModules() Modules
 	PathsToWatch() []string
 	CancelLoading()

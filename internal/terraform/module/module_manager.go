@@ -6,11 +6,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
-	"github.com/gammazero/workerpool"
 	"github.com/hashicorp/hcl-lang/schema"
 	"github.com/hashicorp/terraform-ls/internal/filesystem"
 	"github.com/hashicorp/terraform-ls/internal/terraform/discovery"
@@ -22,8 +20,8 @@ type moduleManager struct {
 	newModule  ModuleFactory
 	filesystem filesystem.Filesystem
 
+	loader      *moduleLoader
 	syncLoading bool
-	workerPool  *workerpool.WorkerPool
 	logger      *log.Logger
 
 	// terraform discovery
@@ -43,27 +41,16 @@ func NewModuleManager(fs filesystem.Filesystem) ModuleManager {
 func newModuleManager(fs filesystem.Filesystem) *moduleManager {
 	d := &discovery.Discovery{}
 
-	defaultSize := 3 * runtime.NumCPU()
-	wp := workerpool.New(defaultSize)
-
 	mm := &moduleManager{
 		modules:       make([]*module, 0),
 		filesystem:    fs,
-		workerPool:    wp,
+		loader:        newModuleLoader(),
 		logger:        defaultLogger,
 		tfDiscoFunc:   d.LookPath,
 		tfNewExecutor: exec.NewExecutor,
 	}
 	mm.newModule = mm.defaultModuleFactory
 	return mm
-}
-
-func (mm *moduleManager) WorkerPoolSize() int {
-	return mm.workerPool.Size()
-}
-
-func (mm *moduleManager) WorkerQueueSize() int {
-	return mm.workerPool.WaitingQueueSize()
 }
 
 func (mm *moduleManager) defaultModuleFactory(ctx context.Context, dir string) (*module, error) {
@@ -96,6 +83,7 @@ func (mm *moduleManager) SetTerraformExecTimeout(timeout time.Duration) {
 
 func (mm *moduleManager) SetLogger(logger *log.Logger) {
 	mm.logger = logger
+	mm.loader.SetLogger(logger)
 }
 
 func (mm *moduleManager) InitAndUpdateModule(ctx context.Context, dir string) (Module, error) {
@@ -129,19 +117,12 @@ func (mm *moduleManager) AddAndStartLoadingModule(ctx context.Context, dir strin
 
 	mm.modules = append(mm.modules, mod)
 
+	mm.loader.EnqueueModule(mod)
 	if mm.syncLoading {
-		mm.logger.Printf("synchronously loading module %s", dir)
-		return mod, mod.load(ctx)
+		<-mod.LoadingDone()
 	}
 
-	mm.logger.Printf("asynchronously loading module %s", dir)
-	mm.workerPool.Submit(func() {
-		mod := mod
-		err := mod.load(context.Background())
-		mod.setLoadErr(err)
-	})
-
-	return mod, nil
+	return mod, err
 }
 
 func (mm *moduleManager) SchemaForPath(path string) (*schema.BodySchema, error) {
@@ -308,12 +289,13 @@ func (mm *moduleManager) HasTerraformDiscoveryFinished(path string) (bool, error
 }
 
 func (mm *moduleManager) CancelLoading() {
+	// TODO: All loading should be done inside loader, so this shouldn't be necessary
 	for _, mod := range mm.modules {
 		mm.logger.Printf("cancelling loading for %s", mod.Path())
 		mod.CancelLoading()
 		mm.logger.Printf("loading cancelled for %s", mod.Path())
 	}
-	mm.workerPool.Stop()
+	mm.loader.CancelLoading()
 }
 
 // trimLockFilePath strips known lock file paths and filenames

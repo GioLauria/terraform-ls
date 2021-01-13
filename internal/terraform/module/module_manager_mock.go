@@ -35,7 +35,8 @@ type ModuleManagerMockInput struct {
 func NewModuleManagerMock(input *ModuleManagerMockInput) ModuleManagerFactory {
 	return func(fs filesystem.Filesystem) ModuleManager {
 		mm := newModuleManager(fs)
-		mm.syncLoading = true
+		mm.loader = newModuleLoader()
+		mm.loader.syncLoading = true
 
 		mmf := &ModuleMockFactory{
 			mmocks: make(map[string]*ModuleMock, 0),

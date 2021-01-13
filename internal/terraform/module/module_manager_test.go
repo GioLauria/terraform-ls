@@ -481,7 +481,8 @@ func TestSchemaForPath_uninitialized(t *testing.T) {
 func testModuleManager(t *testing.T) *moduleManager {
 	fs := filesystem.NewFilesystem()
 	mm := newModuleManager(fs)
-	mm.syncLoading = true
+	mm.loader = newModuleLoader()
+	mm.loader.syncLoading = true
 	mm.logger = testLogger()
 
 	mm.newModule = func(ctx context.Context, dir string) (*module, error) {
